@@ -1,9 +1,0 @@
-pyproject.toml
-src/cortecaja/__init__.py
-src/cortecaja/db.py
-src/cortecaja/migrate.py
-src/cortecaja.egg-info/PKG-INFO
-src/cortecaja.egg-info/SOURCES.txt
-src/cortecaja.egg-info/dependency_links.txt
-src/cortecaja.egg-info/requires.txt
-src/cortecaja.egg-info/top_level.txt
