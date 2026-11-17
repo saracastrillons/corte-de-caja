@@ -1,5 +1,5 @@
 -- 003: operación (ops) — casos, historial y cierres
-BEGIN;
+
 
 -- 1) CASOS — una fila = una diferencia que alguien debe revisar
 CREATE TABLE ops.reconciliation_case (
@@ -89,4 +89,3 @@ CREATE TABLE ops.close_result (
     PRIMARY KEY (close_id, item_type, item_key)
 );
 
-COMMIT;

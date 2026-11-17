@@ -1,0 +1,1 @@
+"""Corte de Caja: conciliación de pedidos, pagos y depósitos."""

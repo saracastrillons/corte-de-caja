@@ -1,5 +1,5 @@
 -- 002: modelo normalizado (core)
-BEGIN;
+
 
 -- 1) PEDIDOS — una fila = un pedido de la tienda
 CREATE TABLE core.orders (
@@ -110,4 +110,3 @@ CREATE TABLE core.settlement_deposits (
 );
 CREATE INDEX ix_settlement_deposits_entry ON core.settlement_deposits (bank_account, external_entry_id);
 
-COMMIT;

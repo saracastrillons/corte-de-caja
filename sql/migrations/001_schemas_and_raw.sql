@@ -1,5 +1,5 @@
 -- 001: esquemas y zona de recepción (raw)
-BEGIN;
+
 
 CREATE SCHEMA IF NOT EXISTS raw;
 CREATE SCHEMA IF NOT EXISTS core;
@@ -38,4 +38,3 @@ CREATE TABLE raw.source_record (
     CHECK (is_valid OR reject_reason IS NOT NULL)
 );
 
-COMMIT;
