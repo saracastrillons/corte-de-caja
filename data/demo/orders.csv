@@ -1,0 +1,8 @@
+order_id,customer_id,order_status,order_purchase_timestamp
+ORD-1001,CUS-01,delivered,2026-11-14 09:58:00
+ORD-1002,CUS-02,delivered,2026-11-14 11:20:00
+ORD-1003,CUS-03,delivered,2026-11-14 15:05:00
+ORD-1004,CUS-04,delivered,2026-11-15 10:40:00
+ORD-1005,CUS-05,delivered,2026-11-15 12:00:00
+ORD-1006,CUS-06,delivered,2026-11-16 16:30:00
+ORD-1007,CUS-07,processing,2026-11-16 18:10:00

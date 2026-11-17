@@ -1,0 +1,3 @@
+bank_account,entry_id,booked_on,amount,currency,description,reference
+CC-0001,BNK-0005,2026-11-18,1250.00,BRL,SIMPAY LIQUIDACAO,STL-1
+CC-0001,BNK-0006,2026-11-18,70.00,BRL,SIMPAY LIQUIDACAO,STL-3
