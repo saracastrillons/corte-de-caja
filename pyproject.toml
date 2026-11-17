@@ -9,6 +9,7 @@ description = "Daily cash reconciliation of store orders, payment gateway settle
 requires-python = ">=3.12"
 dependencies = [
     "psycopg[binary]>=3.2",
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
