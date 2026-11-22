@@ -2,21 +2,28 @@
 {% block title %}{{ row.file_name }} · fila {{ row.row_number }} · Corte de Caja{% endblock %}
 
 {% block content %}
-<p class="eyebrow">Archivo de origen</p>
-<h1 class="source-title">{{ row.file_name }} <span>· fila {{ row.row_number }}</span></h1>
+<header class="page-head">
+  <div class="page-title">
+    <p class="eyebrow">Archivo de origen · el final del rastro</p>
+    <h1 class="source-title">{{ row.file_name }} <span>fila {{ row.row_number }}</span></h1>
+    <p class="lede">Así llegó este dato, sin ninguna transformación. Cualquier cifra de la mesa se puede rastrear hasta aquí.</p>
+  </div>
+</header>
 
-<dl class="facts">
+<dl class="facts card">
   <div><dt>Fuente</dt><dd>{{ row.source }}</dd></div>
-  <div><dt>Lote</dt><dd>{{ row.batch_id }} · {{ row.batch_status }}</dd></div>
+  <div><dt>Lote</dt><dd>#{{ row.batch_id }} · {{ row.batch_status }}</dd></div>
   <div><dt>Recibido</dt><dd>{{ row.received_at|short_date }}</dd></div>
-  <div><dt>Huella SHA-256</dt><dd class="hash">{{ row.file_sha256 }}</dd></div>
   <div><dt>Validación</dt>
-    <dd>{% if row.is_valid %}<span class="status tone-done">Válida</span>
-        {% else %}<span class="status tone-act">Rechazada</span> · {{ row.reject_reason }}{% endif %}</dd></div>
+    <dd>{% if row.is_valid %}<span class="pill tone-done">Válida</span>
+        {% else %}<span class="pill tone-act">Rechazada</span> {{ row.reject_reason }}{% endif %}</dd></div>
+  <div class="facts-wide"><dt>Huella SHA-256 del archivo</dt><dd class="hash">{{ row.file_sha256 }}</dd></div>
 </dl>
 
-<p class="eyebrow">Contenido tal como llegó</p>
-<pre class="payload">{{ pretty }}</pre>
+<section class="card">
+  <div class="card-head"><h2>Contenido tal como llegó</h2></div>
+  <pre class="payload">{{ pretty }}</pre>
+</section>
 
 <p><a class="back" href="javascript:history.back()">← Volver</a></p>
 {% endblock %}

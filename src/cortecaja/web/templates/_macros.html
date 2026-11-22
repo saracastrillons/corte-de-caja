@@ -2,12 +2,13 @@
 
 {# El enlace que lleva de cualquier dato a la fila exacta del archivo de origen. #}
 {% macro source_link(batch_id, row_number, file_name, received_at) -%}
-  <a class="src" href="/source/{{ batch_id }}/{{ row_number }}">
-    {{ file_name }} · fila {{ row_number }} · recibido {{ received_at|short_date }}
+  <a class="src" href="/source/{{ batch_id }}/{{ row_number }}" title="Ver la fila original">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h6l3 3v9H4zM10 2v3h3"/></svg>
+    <span>{{ file_name }} · fila {{ row_number }} · {{ received_at|short_date }}</span>
   </a>
 {%- endmacro %}
 
 {% macro result_status(status) -%}
   {% set label, tone = RESULT_LABELS[status] %}
-  <span class="status tone-{{ tone }}">{{ label }}</span>
+  <span class="pill tone-{{ tone }}">{{ label }}</span>
 {%- endmacro %}

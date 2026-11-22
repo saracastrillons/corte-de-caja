@@ -31,6 +31,29 @@ def last_close(conn: psycopg.Connection, day: date) -> dict | None:
     ).fetchone()
 
 
+SOURCE_LABELS = {
+    "store_orders": "Pedidos",
+    "store_order_items": "Artículos",
+    "gateway_events": "Pasarela",
+    "bank_statement": "Banco",
+}
+
+
+def sources_status(conn: psycopg.Connection, day: date) -> list[dict]:
+    """Último archivo recibido de cada fuente hasta el día operativo: ¿están frescos los datos?"""
+    rows = conn.execute(
+        """SELECT DISTINCT ON (source) source, file_name, received_at,
+                  received_at::date = %s AS today
+           FROM raw.ingestion_batch
+           WHERE status = 'loaded' AND received_at::date <= %s
+           ORDER BY source, received_at DESC""",
+        (day, day),
+    ).fetchall()
+    found = {row["source"]: row for row in rows}
+    return [{"source": source, "label": label, **(found.get(source) or {"file_name": None})}
+            for source, label in SOURCE_LABELS.items()]
+
+
 def day_totals(conn: psycopg.Connection, day: date) -> dict:
     """Esperado, recibido y pendiente con todo lo que sabemos hoy (nivel pasarela → banco)."""
     return conn.execute(

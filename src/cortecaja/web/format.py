@@ -85,6 +85,16 @@ def pct(part, whole) -> float:
     return round(100 * float(part) / float(whole), 1) if whole else 0.0
 
 
+def pct_label(value: float) -> str:
+    """94.6 -> '94,6 %'"""
+    return f"{value:.1f}".replace(".", ",") + " %"
+
+
+def clock(value) -> str:
+    """datetime -> '18:05'"""
+    return "—" if value is None else f"{value:%H:%M}"
+
+
 def humanize(note: str | None) -> str:
     """'overdue_deposit → amount_mismatch' -> 'Depósito vencido → Diferencia de monto'."""
     text = note or ""

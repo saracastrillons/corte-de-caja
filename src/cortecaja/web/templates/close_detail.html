@@ -4,16 +4,20 @@
 {% block nav_closes %}is-current{% endblock %}
 
 {% block content %}
-<section class="dayhead">
-  <div>
+<header class="page-head">
+  <div class="page-title">
     <p class="eyebrow"><a href="/closes">Cierres</a> · versión {{ close.version }} · {{ CLOSE_STATUS[close.status] }}</p>
     <h1>{{ close.business_date|short_date }}</h1>
+    <p class="lede">Lo que el equipo sabía al publicar este cierre, frente a lo que sabemos con los archivos que llegaron después.</p>
   </div>
-  <p class="close-chip">
-    <span class="close-chip-label">Corte de recepción</span>
-    <span class="close-chip-meta">{{ close.received_cutoff|short_date }} · reglas {{ close.rules_version }}</span>
-  </p>
-</section>
+  <div class="page-meta">
+    <span class="close-pill is-static">
+      <span class="pill-dot" aria-hidden="true"></span>
+      <span>Corte de recepción</span>
+      <span class="pill-sub">{{ close.received_cutoff|short_date }} · reglas {{ close.rules_version }}</span>
+    </span>
+  </div>
+</header>
 
 {% if close.missing_sources %}
 <p class="banner">Este cierre quedó incompleto: faltó {{ close.missing_sources|join(', ') }}. No reemplazó a la versión publicada anterior.</p>
@@ -30,8 +34,9 @@
       <div class="is-pending"><dt>Pendiente</dt><dd>{{ close.total_pending|brl }}</dd></div>
     </dl>
   </section>
+  <div class="versions-arrow" aria-hidden="true">→</div>
   <section class="version is-now">
-    <p class="version-label">Con los datos recibidos hasta hoy <span>{{ today|short_date }}</span></p>
+    <p class="version-label">Con los datos de hoy <span>{{ today|short_date }}</span></p>
     <dl class="mini-ledger">
       <div><dt>Esperado</dt><dd>{{ now_totals.expected|brl }}</dd></div>
       <div><dt>Recibido</dt><dd>{{ now_totals.received|brl }}</dd></div>
@@ -40,52 +45,57 @@
   </section>
 </div>
 
-<div class="inbox-head">
-  <h2>Partidas del cierre</h2>
-  <div class="tabs" role="tablist">
-    <a role="tab" href="?only_changes=false" aria-selected="{{ 'false' if only_changes else 'true' }}">
-      Todas <span class="count">{{ total_count }}</span></a>
-    <a role="tab" href="?only_changes=true" aria-selected="{{ 'true' if only_changes else 'false' }}">
-      Cambiaron <span class="count">{{ changed_count }}</span></a>
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2>Partidas del cierre</h2>
+      <p class="hint">Las que cambiaron van primero, con el archivo que explica el cambio</p>
+    </div>
+    <div class="segmented" role="tablist">
+      <a role="tab" href="?only_changes=false" aria-selected="{{ 'false' if only_changes else 'true' }}">
+        Todas <span>{{ total_count }}</span></a>
+      <a role="tab" href="?only_changes=true" aria-selected="{{ 'true' if only_changes else 'false' }}">
+        Cambiaron <span>{{ changed_count }}</span></a>
+    </div>
   </div>
-</div>
 
-<div class="table-wrap">
-  <table class="cases compare">
-    <thead>
-      <tr>
-        <th scope="col">Partida</th>
-        <th scope="col">Publicado</th>
-        <th scope="col" class="num">Recibido</th>
-        <th scope="col">Hoy</th>
-        <th scope="col" class="num">Recibido</th>
-        <th scope="col">Qué explica el cambio</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr class="{{ 'is-changed' if r.changed else '' }}">
-        <td>
-          <span class="ref">{{ r.item_key }}</span>
-          <span class="level">{{ {'order': 'Pedido', 'settlement': 'Liquidación', 'bank_entry': 'Depósito'}[r.item_type] }}</span>
-        </td>
-        <td>{{ m.result_status(r.then.status) }}</td>
-        <td class="num">{{ r.then.received|brl }}</td>
-        <td>{% if r.now %}{{ m.result_status(r.now.status) }}{% else %}—{% endif %}</td>
-        <td class="num">{{ r.now.received|brl if r.now else '—' }}</td>
-        <td class="why">
-          {% if r.changed %}
-            {% if r.now.evidence %}<span>{{ r.now.evidence }}</span>{% endif %}
-            {% for f in r.files %}
-              {{ m.source_link(f.batch_id, f.row_number, f.file_name, f.received_at) }}
-            {% endfor %}
-          {% else %}
-            <span class="muted">Sin cambios</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+  <div class="table-wrap">
+    <table class="cases compare">
+      <thead>
+        <tr>
+          <th scope="col">Partida</th>
+          <th scope="col">Publicado</th>
+          <th scope="col" class="num">Recibido</th>
+          <th scope="col">Hoy</th>
+          <th scope="col" class="num">Recibido</th>
+          <th scope="col">Qué explica el cambio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'is-changed' if r.changed else '' }}">
+          <td class="case-cell">
+            <span class="ref">{{ r.item_key }}</span>
+            <span class="level">{{ {'order': 'Pedido', 'settlement': 'Liquidación', 'bank_entry': 'Depósito'}[r.item_type] }}</span>
+          </td>
+          <td>{{ m.result_status(r.then.status) }}</td>
+          <td class="num">{{ r.then.received|brl }}</td>
+          <td>{% if r.now %}{{ m.result_status(r.now.status) }}{% else %}—{% endif %}</td>
+          <td class="num">{{ r.now.received|brl if r.now else '—' }}</td>
+          <td class="why">
+            {% if r.changed %}
+              {% if r.now.evidence %}<span class="why-text">{{ r.now.evidence }}</span>{% endif %}
+              {% for f in r.files %}
+                {{ m.source_link(f.batch_id, f.row_number, f.file_name, f.received_at) }}
+              {% endfor %}
+            {% else %}
+              <span class="muted">Sin cambios</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

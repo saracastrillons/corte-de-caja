@@ -19,8 +19,8 @@ from psycopg.rows import dict_row
 from cortecaja.db import connect
 from cortecaja.web import queries
 from cortecaja.web.format import (CASE_HELP, CASE_LABELS, CLOSE_STATUS, LEVEL_LABELS, LINE_LABELS,
-                                  RESULT_LABELS, brl, days_label, gap_sentence, humanize, number,
-                                  pct, short_date)
+                                  RESULT_LABELS, brl, clock, days_label, gap_sentence, humanize,
+                                  number, pct, pct_label, short_date)
 
 HERE = Path(__file__).parent
 
@@ -45,7 +45,7 @@ def desk_url(view: str = "open", type: str | None = None, q: str | None = None,
 
 templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.filters.update(brl=brl, short_date=short_date, number=number, days_label=days_label,
-                             humanize=humanize)
+                             humanize=humanize, pct_label=pct_label, clock=clock)
 templates.env.globals.update(
     CASE_LABELS=CASE_LABELS, CASE_HELP=CASE_HELP, LEVEL_LABELS=LEVEL_LABELS,
     RESULT_LABELS=RESULT_LABELS, LINE_LABELS=LINE_LABELS, CLOSE_STATUS=CLOSE_STATUS,
@@ -110,6 +110,7 @@ def desk(request: Request, view: str = "open", type: str | None = None, q: str |
         "total": total,
         "totals": queries.day_totals(conn, day),
         "flow": queries.flow_summary(conn, day),
+        "sources": queries.sources_status(conn, day),
         "last_close": queries.last_close(conn, day),
         "counts": queries.case_counts(conn),
         "type_counts": queries.case_type_counts(conn, status),
