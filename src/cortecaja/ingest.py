@@ -4,6 +4,10 @@ Uso:
     python -m cortecaja.ingest <fuente> <archivo> [--received-at 2026-11-17T18:00:00-03:00]
 
 Fuentes: store_orders, store_order_items, gateway_events, bank_statement
+
+Versión por lotes: en vez de ir a la base una o dos veces por fila, valida todo el archivo
+en Python, consulta las referencias de una vez y escribe cada tabla con un solo executemany.
+Las reglas son las mismas que en la versión fila a fila; solo cambia cuántas idas y vueltas hay.
 """
 
 import argparse
@@ -47,6 +51,18 @@ TARGETS = {
                          "gateway_bank", "bank_entry", amount="amount"),
 }
 
+# Orden de escritura: primero lo que otros registros citan (los eventos antes que las liquidaciones).
+WRITE_ORDER = ["order", "order_item", "payment_event", "settlement", "bank_entry"]
+
+
+@dataclass
+class Row:
+    """Una fila del archivo mientras se procesa."""
+    number: int
+    raw: dict
+    record: dict | None = None
+    error: str | None = None
+
 
 @dataclass
 class Summary:
@@ -61,32 +77,127 @@ class Summary:
     message: str | None = None
 
 
+def pairs(keys) -> tuple[list, list]:
+    """{(a, 1), (b, 2)} -> ([a, b], [1, 2]) para consultar muchas claves con unnest()."""
+    keys = list(keys)
+    return [k[0] for k in keys], [k[1] for k in keys]
+
+
 # ---------------------------------------------------------------------------
-# Escritura en core: insertar si es nuevo, comparar si ya existía
+# 1) Referencias: TODAS las del archivo en dos o tres consultas
 # ---------------------------------------------------------------------------
 
-def write_or_compare(conn: psycopg.Connection, target: Target, values: dict) -> tuple[str, tuple | None]:
-    """Devuelve ('inserted', None), ('identical', fila) o ('conflict', fila_existente)."""
-    columns = list(values)
+def check_references(conn: psycopg.Connection, rows: list[Row]) -> None:
+    """Marca con su motivo las filas que citan algo que no existe. No escribe nada."""
+    items = [r for r in rows if r.record and r.record["kind"] == "order_item"]
+    if items:
+        wanted = list({r.record["order_id"] for r in items})
+        known = {order_id for (order_id,) in conn.execute(
+            "SELECT order_id FROM core.orders WHERE order_id = ANY(%s)", (wanted,))}
+        for r in items:
+            if r.record["order_id"] not in known:
+                r.error = f"El pedido {r.record['order_id']} no existe"
+
+    settlements = [r for r in rows if r.record and r.record["kind"] == "settlement"]
+    if not settlements:
+        return
+
+    # Eventos que una liquidación puede citar: los de la base y los válidos de este mismo archivo.
+    in_file = {}
+    for r in rows:
+        if r.record and r.record["kind"] == "payment_event":
+            in_file.setdefault((r.record["provider"], r.record["external_event_id"]), r.record["event_type"])
+    cited = {(r.record["provider"], line["external_event_id"])
+             for r in settlements for line in r.record["lines"] if line["external_event_id"]}
+    providers, event_ids = pairs(cited)
+    in_db = {(p, e): t for p, e, t in conn.execute(
+        """SELECT provider, external_event_id, event_type FROM core.payment_events
+           WHERE (provider, external_event_id) IN (SELECT unnest(%s::text[]), unnest(%s::text[]))""",
+        (providers, event_ids))}
+    settled = {(p, e): s for p, e, s in conn.execute(
+        """SELECT provider, external_event_id, settlement_id FROM core.settlement_lines
+           WHERE (provider, external_event_id) IN (SELECT unnest(%s::text[]), unnest(%s::text[]))""",
+        (providers, event_ids))}
+
+    for r in settlements:
+        record = r.record
+        try:
+            for line in record["lines"]:
+                if line["external_event_id"] is None:
+                    continue
+                key = (record["provider"], line["external_event_id"])
+                event_type = in_db.get(key) or in_file.get(key)
+                if event_type is None:
+                    raise RowError(f"La línea {line['line_number']} cita el evento {key[1]}, que no existe")
+                if event_type != line["line_type"]:
+                    raise RowError(f"El evento {key[1]} es '{event_type}' pero la línea dice '{line['line_type']}'")
+                if settled.get(key) not in (None, record["settlement_id"]):
+                    raise RowError(f"El evento {key[1]} ya está en la liquidación {settled[key]}")
+            for line in record["lines"]:          # este archivo también "reclama" sus eventos
+                if line["external_event_id"]:
+                    settled[(record["provider"], line["external_event_id"])] = record["settlement_id"]
+        except RowError as error:
+            r.error = str(error)
+
+
+# ---------------------------------------------------------------------------
+# 2) Escritura en core: insertar lo nuevo de una vez y comparar lo que ya existía
+# ---------------------------------------------------------------------------
+
+def values_for(record: dict, batch_id: int, row_number: int) -> dict:
+    values = {k: v for k, v in record.items() if k not in ("kind", "lines")}
+    return values | {"src_batch_id": batch_id, "src_row": row_number}
+
+
+def write_many(conn: psycopg.Connection, target: Target, values: list[dict]) -> list[tuple[str, tuple | None]]:
+    """Para cada fila devuelve ('inserted', None), ('identical', fila) o ('conflict', fila_existente)."""
+    columns = list(values[0])
+    table = sql.Identifier(*target.table)
+    key_cols = sql.SQL(", ").join(map(sql.Identifier, target.key))
     insert = sql.SQL(
-        "INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({key}) DO NOTHING RETURNING 1"
-    ).format(
-        table=sql.Identifier(*target.table),
-        cols=sql.SQL(", ").join(map(sql.Identifier, columns)),
-        vals=sql.SQL(", ").join(sql.Placeholder() * len(columns)),
-        key=sql.SQL(", ").join(map(sql.Identifier, target.key)),
-    )
-    if conn.execute(insert, list(values.values())).fetchone():
-        return "inserted", None
+        "INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({key}) DO NOTHING RETURNING {key}"
+    ).format(table=table, cols=sql.SQL(", ").join(map(sql.Identifier, columns)),
+             vals=sql.SQL(", ").join(sql.Placeholder() * len(columns)), key=key_cols)
 
-    select = sql.SQL("SELECT {cols} FROM {table} WHERE {where}").format(
-        cols=sql.SQL(", ").join(map(sql.Identifier, target.compare)),
-        table=sql.Identifier(*target.table),
-        where=sql.SQL(" AND ").join(sql.SQL("{} = %s").format(sql.Identifier(k)) for k in target.key),
-    )
-    existing = conn.execute(select, [values[k] for k in target.key]).fetchone()
-    incoming = tuple(values[c] for c in target.compare)
-    return ("identical" if tuple(existing) == incoming else "conflict"), existing
+    inserted = set()
+    with conn.cursor() as cur:
+        cur.executemany(insert, [list(v.values()) for v in values], returning=True)
+        while True:                                     # un resultado por fila enviada
+            inserted.update(tuple(row) for row in cur.fetchall())
+            if not cur.nextset():
+                break
+
+    # Lo que no se insertó ya existía: se trae en UNA consulta para compararlo.
+    keys = [tuple(v[k] for k in target.key) for v in values]
+    need, seen = set(), set()
+    for key in keys:
+        if key not in inserted or key in seen:          # ya existía, o se repite dentro del archivo
+            need.add(key)
+        seen.add(key)
+
+    existing = {}
+    if need:
+        sample = next(iter(need))                       # el tipo de cada columna de la clave
+        unnests = sql.SQL(", ").join(
+            sql.SQL("unnest(%s::bigint[])" if isinstance(value, int) else "unnest(%s::text[])")
+            for value in sample)
+        select = sql.SQL("SELECT {key}, {cols} FROM {table} WHERE ({key}) IN (SELECT {unnests})").format(
+            key=key_cols, cols=sql.SQL(", ").join(map(sql.Identifier, target.compare)),
+            table=table, unnests=unnests)
+        params = [[key[i] for key in need] for i in range(len(target.key))]
+        n = len(target.key)
+        existing = {tuple(row[:n]): tuple(row[n:]) for row in conn.execute(select, params)}
+
+    outcomes, claimed = [], set()
+    for key, v in zip(keys, values):
+        if key in inserted and key not in claimed:      # la primera aparición es la que entró
+            claimed.add(key)
+            outcomes.append(("inserted", None))
+            continue
+        old = existing[key]
+        new = tuple(v[c] for c in target.compare)
+        outcomes.append(("identical" if old == new else "conflict", old))
+    return outcomes
 
 
 def open_conflict(conn, target: Target, values: dict, existing: tuple, batch_id: int) -> None:
@@ -136,58 +247,38 @@ def open_conflict(conn, target: Target, values: dict, existing: tuple, batch_id:
     )
 
 
-def check_references(conn: psycopg.Connection, record: dict) -> None:
-    """Reglas que necesitan mirar la base. Si fallan, la fila se rechaza con su motivo."""
-    if record["kind"] == "order_item":
-        if not conn.execute("SELECT 1 FROM core.orders WHERE order_id = %s", (record["order_id"],)).fetchone():
-            raise RowError(f"El pedido {record['order_id']} no existe")
+def write_core(conn: psycopg.Connection, rows: list[Row], batch_id: int, summary: Summary) -> None:
+    valid = [r for r in rows if r.error is None]
+    for kind in WRITE_ORDER:
+        group = [r for r in valid if r.record["kind"] == kind]
+        if not group:
+            continue
+        target = TARGETS[kind]
+        values = [values_for(r.record, batch_id, r.number) for r in group]
+        new_settlements = []
 
-    if record["kind"] == "settlement":
-        for line in record["lines"]:
-            event_id = line["external_event_id"]
-            if event_id is None:
-                continue
-            found = conn.execute(
-                """SELECT e.event_type, l.settlement_id
-                   FROM core.payment_events e
-                   LEFT JOIN core.settlement_lines l
-                          ON l.provider = e.provider AND l.external_event_id = e.external_event_id
-                   WHERE e.provider = %s AND e.external_event_id = %s""",
-                (record["provider"], event_id),
-            ).fetchone()
-            if found is None:
-                raise RowError(f"La línea {line['line_number']} cita el evento {event_id}, que no existe")
-            if found[0] != line["line_type"]:
-                raise RowError(f"El evento {event_id} es '{found[0]}' pero la línea dice '{line['line_type']}'")
-            if found[1] not in (None, record["settlement_id"]):
-                raise RowError(f"El evento {event_id} ya está en la liquidación {found[1]}")
+        for r, v, (outcome, existing) in zip(group, values, write_many(conn, target, values)):
+            if outcome == "inserted":
+                summary.inserted += 1
+                if kind == "settlement":
+                    new_settlements.append(r)
+            elif outcome == "identical":
+                summary.identical += 1
+            else:
+                summary.conflicts += 1
+                open_conflict(conn, target, v, existing, batch_id)
 
-
-def apply_record(conn, record: dict, batch_id: int, row_number: int, summary: Summary) -> None:
-    kind = record["kind"]
-    target = TARGETS[kind]
-    values = {k: v for k, v in record.items() if k not in ("kind", "lines")}
-    values |= {"src_batch_id": batch_id, "src_row": row_number}
-
-    outcome, existing = write_or_compare(conn, target, values)
-
-    if outcome == "inserted":
-        summary.inserted += 1
-        if kind == "settlement":
-            for line in record["lines"]:
-                conn.execute(
+        if new_settlements:                             # las líneas de todas las liquidaciones nuevas
+            with conn.cursor() as cur:
+                cur.executemany(
                     """INSERT INTO core.settlement_lines
                          (provider, settlement_id, line_number, line_type, external_event_id,
                           amount, src_batch_id, src_row)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (record["provider"], record["settlement_id"], line["line_number"],
-                     line["line_type"], line["external_event_id"], line["amount"], batch_id, row_number),
+                    [(r.record["provider"], r.record["settlement_id"], line["line_number"],
+                      line["line_type"], line["external_event_id"], line["amount"], batch_id, r.number)
+                     for r in new_settlements for line in r.record["lines"]],
                 )
-    elif outcome == "identical":
-        summary.identical += 1
-    else:
-        summary.conflicts += 1
-        open_conflict(conn, target, values, existing, batch_id)
 
 
 # ---------------------------------------------------------------------------
@@ -220,30 +311,38 @@ def ingest_file(conn: psycopg.Connection, source: str, path: Path,
 
     # 2) ¿El archivo tiene la estructura correcta?
     try:
-        rows = read_rows(source, content)
+        raw_rows = read_rows(source, content)
     except StructureError as error:
         with conn.transaction():
             return Summary(new_batch("failed", str(error)), "failed", message=str(error))
 
-    # 3) Todo el archivo en UNA transacción: o queda completo, o no queda nada.
+    # 3) Validar en Python (sin tocar la base) y revisar las referencias de una vez.
+    rows = []
+    for number, raw in enumerate(raw_rows, start=1):
+        row = Row(number, raw)
+        try:
+            row.record = validate(source, raw)
+        except RowError as error:
+            row.error = str(error)
+        rows.append(row)
+
+    # 4) Todo el archivo en UNA transacción: o queda completo, o no queda nada.
     with conn.transaction():
+        check_references(conn, rows)
         batch_id = new_batch("received")
         summary = Summary(batch_id, "loaded", rows_received=len(rows))
 
-        for row_number, row in enumerate(rows, start=1):
-            try:
-                record = validate(source, row)
-                check_references(conn, record)
-            except RowError as error:
+        with conn.cursor() as cur:                      # cada fila tal como llegó, en un solo envío
+            cur.executemany(
+                "INSERT INTO raw.source_record VALUES (%s, %s, %s, %s, %s)",
+                [(batch_id, r.number, Jsonb(r.raw), r.error is None, r.error) for r in rows],
+            )
+        for r in rows:
+            if r.error:
                 summary.rows_rejected += 1
-                summary.rejections.append(f"fila {row_number}: {error}")
-                conn.execute("INSERT INTO raw.source_record VALUES (%s, %s, %s, false, %s)",
-                             (batch_id, row_number, Jsonb(row), str(error)))
-                continue
+                summary.rejections.append(f"fila {r.number}: {r.error}")
 
-            conn.execute("INSERT INTO raw.source_record VALUES (%s, %s, %s, true, NULL)",
-                         (batch_id, row_number, Jsonb(row)))
-            apply_record(conn, record, batch_id, row_number, summary)
+        write_core(conn, rows, batch_id, summary)
 
         conn.execute(
             """UPDATE raw.ingestion_batch

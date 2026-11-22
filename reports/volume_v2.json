@@ -1,0 +1,105 @@
+{
+  "rules_version": "v2",
+  "generated_at": "2026-11-22T15:16:06-05:00",
+  "close_day": "2018-08-31",
+  "days": 642,
+  "timings_seconds": {
+    "orders_file": 17.8,
+    "items_file": 20.03,
+    "daily_files": 1251,
+    "daily_file_median": 0.178,
+    "daily_file_p95": 0.461,
+    "full_load": 349.9,
+    "full_period_close": 13.2
+  },
+  "resend_status": "duplicate_file",
+  "close": {
+    "status": "published",
+    "items": 101155,
+    "cases": {
+      "opened": 1165,
+      "updated": 0,
+      "resolved": 0
+    },
+    "totals": {
+      "expected": "15082185.44",
+      "received": "14880846.03",
+      "pending": "201339.41"
+    }
+  },
+  "rows_by_source": {
+    "bank_statement": 1685,
+    "gateway_events": 107115,
+    "store_order_items": 112650,
+    "store_orders": 99441
+  },
+  "batches_by_status": {
+    "duplicate_file": 1,
+    "loaded": 1253
+  },
+  "rejected_rows": [
+    {
+      "reason": "El importe de un evento debe ser positivo",
+      "rows": 10
+    }
+  ],
+  "open_cases": [
+    {
+      "case_type": "amount_mismatch",
+      "cases": 1033,
+      "amount": "160839.47"
+    },
+    {
+      "case_type": "partial_payment",
+      "cases": 62,
+      "amount": "509.00"
+    },
+    {
+      "case_type": "data_conflict",
+      "cases": 49,
+      "amount": "49.00"
+    },
+    {
+      "case_type": "unmatched_bank_entry",
+      "cases": 27,
+      "amount": "12482.67"
+    },
+    {
+      "case_type": "ambiguous_match",
+      "cases": 19,
+      "amount": "115652.14"
+    },
+    {
+      "case_type": "duplicate_charge",
+      "cases": 13,
+      "amount": "0.00"
+    },
+    {
+      "case_type": "overdue_deposit",
+      "cases": 11,
+      "amount": "85647.14"
+    }
+  ],
+  "orders_by_status": {
+    "partial_payment": 39,
+    "matched": 98349,
+    "overcharged": 1036,
+    "no_payment": 4,
+    "duplicate_charge": 13
+  },
+  "settlements": 1668,
+  "settlements_auto_reconciled": 1623,
+  "auto_reconciled_pct": 97.3,
+  "truth_agreement": {
+    "ok": 1668
+  },
+  "truth_confusion": {
+    "late → overdue": 1,
+    "late → reconciled": 39,
+    "never → overdue": 10,
+    "no_reference → suggested": 19,
+    "ok → reconciled": 1584,
+    "short → mismatch": 15
+  },
+  "false_reconciliations": 0
+}

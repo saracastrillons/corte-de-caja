@@ -17,7 +17,7 @@ import psycopg
 
 from cortecaja.db import connect
 
-RULES_VERSION = "v1"
+RULES_VERSION = "v2"
 REQUIRED_SOURCES = ("gateway_events", "bank_statement")
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 
@@ -100,17 +100,23 @@ def log_event(conn, case_id, event_type, from_status, to_status, note, as_of, ba
     )
 
 
+def open_cases(conn: psycopg.Connection) -> dict:
+    """Todos los casos abiertos (menos conflictos) en UNA consulta: (tipo, clave) -> caso."""
+    return {
+        (entity_type, key): (case_id, case_type, expected, received)
+        for entity_type, key, case_id, case_type, expected, received in conn.execute(
+            """SELECT entity_type, entity_key, case_id, case_type, expected_amount, received_amount
+               FROM ops.reconciliation_case
+               WHERE status = 'open' AND case_type <> 'data_conflict'""")
+    }
+
+
 def sync_cases(conn: psycopg.Connection, items: list[Item], as_of: datetime, batch_id: int | None) -> dict:
     counts = {"opened": 0, "updated": 0, "resolved": 0}
+    known = open_cases(conn)          # antes: una consulta por partida (100.000 con Olist)
 
     for item in items:
-        current = conn.execute(
-            """SELECT case_id, case_type, expected_amount, received_amount
-               FROM ops.reconciliation_case
-               WHERE entity_type = %s AND entity_key = %s
-                 AND status = 'open' AND case_type <> 'data_conflict'""",
-            (item.item_type, item.key),
-        ).fetchone()
+        current = known.get((item.item_type, item.key))
         rule = item.case_rule()
 
         if rule is None:                                        # la partida ya cuadra
@@ -206,16 +212,16 @@ def save_close(conn, business_date, cutoff, as_of, items, missing, publish) -> t
          previous[0] if previous else None, as_of, as_of if status == "published" else None),
     ).fetchone()[0]
 
-    for item in items:
-        conn.execute(
+        # La foto completa en un solo envío (executemany agrupa las filas en lotes).
+    case_ids = {key: case[0] for key, case in open_cases(conn).items()}
+    with conn.cursor() as cur:
+        cur.executemany(
             """INSERT INTO ops.close_result
                  (close_id, item_type, item_key, item_status, expected_amount, received_amount, case_id)
-               VALUES (%s, %s, %s, %s, %s, %s,
-                       (SELECT case_id FROM ops.reconciliation_case
-                        WHERE entity_type = %s AND entity_key = %s
-                          AND status = 'open' AND case_type <> 'data_conflict'))""",
-            (close_id, item.item_type, item.key, RESULT_STATUS[item.status],
-             item.expected, item.received, item.item_type, item.key),
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            [(close_id, item.item_type, item.key, RESULT_STATUS[item.status],
+              item.expected, item.received, case_ids.get((item.item_type, item.key)))
+             for item in items],
         )
     return close_id, version, status, totals
 

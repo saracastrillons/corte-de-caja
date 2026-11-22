@@ -1,0 +1,69 @@
+{
+  "label": "despues",
+  "table_sizes": {
+    "raw.source_record": 320891,
+    "ops.reconciliation_case (open)": 1214
+  },
+  "params": {
+    "provider": "simpay",
+    "event_id": "PAY-8a6d1317935fc8ba385da595dd3bf2be-1"
+  },
+  "queries": {
+    "observaciones_de_un_evento": {
+      "median_ms": 0.095,
+      "min_ms": 0.07,
+      "runs": 7,
+      "scans": [
+        "Index Scan on ingestion_batch using ingestion_batch_pkey",
+        "Index Scan on source_record using ix_source_record_event_id"
+      ],
+      "shared_hit_blocks": 11,
+      "shared_read_blocks": 0,
+      "plan": [
+        "Sort (actual rows=2.00 loops=1)",
+        "  Sort Key: b.received_at, r.batch_id",
+        "  Sort Method: quicksort  Memory: 25kB",
+        "  Buffers: shared hit=11",
+        "  ->  Nested Loop (actual rows=2.00 loops=1)",
+        "        Buffers: shared hit=11",
+        "        ->  Index Scan using ix_source_record_event_id on source_record r (actual rows=2.00 loops=1)",
+        "              Index Cond: ((payload ->> 'event_id'::text) = 'PAY-8a6d1317935fc8ba385da595dd3bf2be-1'::text)",
+        "              Filter: ((payload ->> 'provider'::text) = 'simpay'::text)",
+        "              Index Searches: 1",
+        "              Buffers: shared hit=5",
+        "        ->  Index Scan using ingestion_batch_pkey on ingestion_batch b (actual rows=1.00 loops=2)",
+        "              Index Cond: (batch_id = r.batch_id)",
+        "              Filter: (source = 'gateway_events'::text)",
+        "              Index Searches: 2",
+        "              Buffers: shared hit=6",
+        "Planning:",
+        "  Buffers: shared hit=15",
+        "Planning Time: 0.294 ms",
+        "Execution Time: 0.069 ms"
+      ]
+    },
+    "bandeja_top_50": {
+      "median_ms": 1.109,
+      "min_ms": 1.041,
+      "runs": 7,
+      "scans": [
+        "Seq Scan on reconciliation_case"
+      ],
+      "shared_hit_blocks": 30,
+      "shared_read_blocks": 0,
+      "plan": [
+        "Limit (actual rows=50.00 loops=1)",
+        "  Buffers: shared hit=30",
+        "  ->  Sort (actual rows=50.00 loops=1)",
+        "        Sort Key: (abs(difference)) DESC, case_id",
+        "        Sort Method: top-N heapsort  Memory: 37kB",
+        "        Buffers: shared hit=30",
+        "        ->  Seq Scan on reconciliation_case (actual rows=1214.00 loops=1)",
+        "              Filter: (status = 'open'::text)",
+        "              Buffers: shared hit=30",
+        "Planning Time: 0.080 ms",
+        "Execution Time: 0.955 ms"
+      ]
+    }
+  }
+}
