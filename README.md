@@ -132,11 +132,30 @@ That is what lets the app answer both *"what do we know today about Nov 17?"* an
 pytest -v
 ```
 
-15 tests, each one a hand-written expectation: re-processing the same statement, the same
+20 tests, each one a hand-written expectation: re-processing the same statement, the same
 event in two files, conflicting IDs, the 3-items × 2-payments trap, a late deposit that
 resolves a case while the old close stays reproducible, ambiguous deposits, a missing
-statement. Every test gets a fresh database cloned from a migrated template.
+statement, and one test per rule learned from real data (rounding tolerance, vouchers vs.
+duplicate charges). Every test gets a fresh database cloned from a migrated template.
 CI runs them on PostgreSQL 18 and applies the migrations twice.
+
+## Volume & performance
+
+Run against the full Olist dataset (99k orders, 113k items) plus a seeded gateway and bank
+simulator that injects known errors — details in [docs/performance.md](docs/performance.md).
+
+| | |
+|---|---|
+| Rows loaded | 320,891 in ~6 min (batched; 19 min row by row) |
+| One daily file | 0.18 s median |
+| Close over the whole period | 101,155 items in 13.2 s (223 s before batching) |
+| Settlements reconciled automatically | 97.3 % |
+| Classification vs. the simulator's answer key | 1,668 / 1,668 · **0 false reconciliations** |
+| Open cases after learning from real data | 1,751 → 1,214 (rules v2) |
+| Conflict-evidence lookup with an expression index | 70.7 ms → 0.095 ms |
+
+```bash
+python -m cortecaja.simulate && python -m cortecaja.volume
 
 ## Stack
 
@@ -145,7 +164,6 @@ PostgreSQL 18 · Python 3.14 · psycopg 3 · FastAPI + Jinja · plain CSS
 
 ## Roadmap
 
-- Volume scenario built on the full Olist dataset (~100k orders) with a seeded simulator.
-- `EXPLAIN (ANALYZE, BUFFERS)` before/after an index on the open-cases query, with the
-  numbers published here — including the case where the index does not help.
-- Manual resolution of ambiguous matches from the desk, with a mandatory reason.
+- Resolve ambiguous matches from the desk, with a mandatory reason recorded in the case history.
+- Allocate one deposit across several settlements when the bank statement includes a breakdown.
+- Incremental close: recompute only the items touched by the new files instead of the whole period.
