@@ -9,14 +9,10 @@
     <h1>{{ day|short_date }}</h1>
   </div>
   {% if last_close %}
-  <p class="close-chip close-{{ last_close.status }}">
-    <span class="close-chip-label">Cierre v{{ last_close.version }} ·
-      {% if last_close.status == 'published' %}publicado
-      {% elif last_close.status == 'incomplete' %}incompleto
-      {% elif last_close.status == 'superseded' %}reemplazado
-      {% else %}borrador{% endif %}</span>
+  <a class="close-chip close-{{ last_close.status }}" href="/closes/{{ last_close.close_id }}">
+    <span class="close-chip-label">Cierre v{{ last_close.version }} · {{ CLOSE_STATUS[last_close.status] }}</span>
     <span class="close-chip-meta">corte {{ last_close.received_cutoff|short_date }}</span>
-  </p>
+  </a>
   {% endif %}
 </section>
 
@@ -43,57 +39,73 @@
   </div>
 </dl>
 
-<section class="inbox" aria-labelledby="inbox-title">
-  <div class="inbox-head">
-    <h2 id="inbox-title">Bandeja de diferencias</h2>
-    <div class="tabs" role="tablist">
-      <a role="tab" href="/?view=open" aria-selected="{{ 'true' if view == 'open' else 'false' }}">
-        Abiertos <span class="count">{{ counts.get('open', 0) }}</span></a>
-      <a role="tab" href="/?view=resolved" aria-selected="{{ 'true' if view == 'resolved' else 'false' }}">
-        Resueltos <span class="count">{{ counts.get('resolved', 0) }}</span></a>
+<div class="desk {{ 'has-panel' if selected else '' }}" id="bandeja">
+  <section class="inbox" aria-labelledby="inbox-title">
+    <div class="inbox-head">
+      <h2 id="inbox-title">Bandeja de diferencias</h2>
+      <div class="tabs" role="tablist">
+        <a role="tab" href="/?view=open" aria-selected="{{ 'true' if view == 'open' else 'false' }}">
+          Abiertos <span class="count">{{ counts.get('open', 0) }}</span></a>
+        <a role="tab" href="/?view=resolved" aria-selected="{{ 'true' if view == 'resolved' else 'false' }}">
+          Resueltos <span class="count">{{ counts.get('resolved', 0) }}</span></a>
+      </div>
     </div>
-  </div>
 
-  <div class="table-wrap">
-    <table class="cases">
-      <thead>
-        <tr>
-          <th scope="col">Estado</th>
-          <th scope="col">Referencia</th>
-          <th scope="col" class="num">Esperado</th>
-          <th scope="col" class="num">Recibido</th>
-          <th scope="col" class="num">Diferencia</th>
-          <th scope="col" class="num">Días</th>
-          <th scope="col">Siguiente paso</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in cases %}
-        {% set label, tone = CASE_LABELS.get(c.case_type, (c.case_type, 'review')) %}
-        <tr>
-          <td>
-            {% if view == 'resolved' %}
-            <span class="status tone-done">Resuelto</span>
-            <span class="level">{{ label }}</span>
-            {% else %}
-            <span class="status tone-{{ tone }}">{{ label }}</span>
-            {% endif %}
-          </td>
-          <td>
-            <span class="ref">{{ c.entity_key }}</span>
-            <span class="level">{{ LEVEL_LABELS[c.level] }}</span>
-          </td>
-          <td class="num">{{ c.expected_amount|brl }}</td>
-          <td class="num">{{ c.received_amount|brl }}</td>
-          <td class="num diff {{ 'is-zero' if c.difference == 0 else '' }}">{{ c.difference|brl(signed=True) }}</td>
-          <td class="num">{{ c.days_open }}</td>
-          <td class="next">{{ c.next_action }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7" class="empty">No hay casos en esta vista.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
+    <div class="table-wrap">
+      <table class="cases">
+        <thead>
+          <tr>
+            <th scope="col">Estado</th>
+            <th scope="col">Referencia</th>
+            <th scope="col" class="num col-amt">Esperado</th>
+            <th scope="col" class="num col-amt">Recibido</th>
+            <th scope="col" class="num">Diferencia</th>
+            <th scope="col" class="num col-days">Días</th>
+            <th scope="col" class="col-next">Siguiente paso</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in cases %}
+          {% set label, tone = CASE_LABELS.get(c.case_type, (c.case_type, 'review')) %}
+          {% set href = '/?view=' ~ view ~ '&case=' ~ c.case_id ~ '#bandeja' %}
+          <tr data-href="{{ href }}" class="{{ 'is-selected' if selected and selected.case_id == c.case_id else '' }}">
+            <td>
+              {% if view == 'resolved' %}
+              <span class="status tone-done">Resuelto</span>
+              <span class="level">{{ label }}</span>
+              {% else %}
+              <span class="status tone-{{ tone }}">{{ label }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <a class="ref" href="{{ href }}">{{ c.entity_key }}</a>
+              <span class="level">{{ LEVEL_LABELS[c.level] }}</span>
+            </td>
+            <td class="num col-amt">{{ c.expected_amount|brl }}</td>
+            <td class="num col-amt">{{ c.received_amount|brl }}</td>
+            <td class="num diff {{ 'is-zero' if c.difference == 0 else '' }}">{{ c.difference|brl(signed=True) }}</td>
+            <td class="num col-days">{{ c.days_open }}</td>
+            <td class="next col-next">{{ c.next_action }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty">No hay casos en esta vista.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if selected %}
+    {% include "_evidence.html" %}
+  {% endif %}
+</div>
+
+<script>
+  // Toda la fila es clicable; el enlace de la referencia sigue funcionando con teclado.
+  document.querySelectorAll("tr[data-href]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (!event.target.closest("a")) window.location = row.dataset.href;
+    });
+  });
+</script>
 {% endblock %}

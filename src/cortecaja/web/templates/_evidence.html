@@ -1,0 +1,186 @@
+{# Ficha de evidencia: dos registros frente a frente y la diferencia entre ellos. #}
+{% import "_macros.html" as m %}
+{% set c = selected %}
+{% set e = evidence %}
+{% set label, tone = CASE_LABELS.get(c.case_type, (c.case_type, 'review')) %}
+
+<aside class="evidence" aria-labelledby="evidence-title">
+  <header class="evidence-head">
+    <div>
+      <span class="status tone-{{ 'done' if c.status == 'resolved' else tone }}">
+        {{ 'Resuelto · ' if c.status == 'resolved' else '' }}{{ label }}</span>
+      <h2 id="evidence-title" class="evidence-ref">{{ c.entity_key }}</h2>
+    </div>
+    <a class="evidence-close" href="/?view={{ view }}#bandeja" aria-label="Cerrar la ficha">×</a>
+  </header>
+
+  {# La diferencia va primero: es lo que la persona necesita saber. #}
+  <div class="gap {{ 'is-zero' if c.difference == 0 else '' }}">
+    <p class="gap-sentence">{{ e.gap }}</p>
+    <p class="gap-amount">{{ c.difference|brl(signed=True) }}</p>
+    {% if c.status == 'open' %}<p class="gap-next">Siguiente paso: {{ c.next_action }}</p>{% endif %}
+  </div>
+
+  <div class="faceoff">
+    {# ── IZQUIERDA: lo que se esperaba ─────────────────────── #}
+    <section class="record">
+      {% if e.kind == 'settlement' and e.settlement %}
+        {% set s = e.settlement %}
+        <p class="record-kicker">Pasarela · liquidación</p>
+        <h3 class="record-title">{{ s.settlement_id }}</h3>
+        <p class="record-meta">Liquidada {{ s.settled_at|short_date }}<br>Pago esperado {{ s.expected_payout_on|short_date }}</p>
+        <ul class="lines">
+          {% for l in s.lines %}
+          <li>
+            <details>
+              <summary>
+                <span>{{ LINE_LABELS[l.line_type] }}{% if l.order_ref %} · {{ l.order_ref }}{% endif %}</span>
+                <span class="amt">{{ l.amount|brl }}</span>
+              </summary>
+              <p class="line-detail">
+                {% if l.external_event_id %}Evento <code>{{ l.external_event_id }}</code> · {{ l.payment_method }}<br>{% endif %}
+                {{ m.source_link(l.src_batch_id, l.src_row, s.file_name, s.received_at) }}
+              </p>
+            </details>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="record-total"><span>Neto esperado</span><span class="amt">{{ s.reported_net|brl }}</span></p>
+        <p class="record-source">{{ m.source_link(s.src_batch_id, s.src_row, s.file_name, s.received_at) }}</p>
+
+      {% elif e.kind == 'order' %}
+        <p class="record-kicker">Tienda · pedido</p>
+        {% if e.order %}
+          {% set o = e.order %}
+          <h3 class="record-title">{{ o.order_id }}</h3>
+          <p class="record-meta">Comprado {{ o.purchased_at|short_date }} · {{ o.order_status }}</p>
+          <ul class="lines">
+            {% for i in o['items'] %}
+            <li>
+              <details>
+                <summary>
+                  <span>Artículo {{ i.line_number }} · {{ i.product_id }}</span>
+                  <span class="amt">{{ i.total|brl }}</span>
+                </summary>
+                <p class="line-detail">
+                  Precio {{ i.price|brl }} + envío {{ i.freight|brl }}<br>
+                  {{ m.source_link(i.src_batch_id, i.src_row, i.file_name, i.received_at) }}
+                </p>
+              </details>
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="record-total"><span>Valor del pedido</span><span class="amt">{{ c.expected_amount|brl }}</span></p>
+        {% else %}
+          <h3 class="record-title">{{ c.entity_key }}</h3>
+          <p class="record-empty">La tienda no tiene un pedido con esta referencia.</p>
+        {% endif %}
+
+      {% elif e.kind == 'conflict' %}
+        <p class="record-kicker">Versión guardada</p>
+        {% for o in e.first %}
+          <h3 class="record-title">{{ o.payload.event_id }}</h3>
+          <p class="record-meta">{{ o.payload.event_type }} · {{ o.payload.payment_method }} · {{ o.payload.order_ref }}</p>
+          <p class="record-total"><span>Importe</span><span class="amt">{{ o.payload.amount|brl }}</span></p>
+          <p class="record-source">{{ m.source_link(o.batch_id, o.row_number, o.file_name, o.received_at) }}</p>
+        {% endfor %}
+
+      {% else %}
+        <p class="record-kicker">Pasarela · liquidación</p>
+        <p class="record-empty">Ninguna liquidación tiene este depósito como pago.</p>
+      {% endif %}
+    </section>
+
+    <div class="faceoff-rule" aria-hidden="true"><span>≠</span></div>
+
+    {# ── DERECHA: lo que llegó ─────────────────────────────── #}
+    <section class="record">
+      {% if e.kind == 'settlement' %}
+        <p class="record-kicker">Banco · extracto</p>
+        {% if e.deposits %}
+          {% for d in e.deposits %}
+          <h3 class="record-title">{{ d.external_entry_id }}</h3>
+          <p class="record-meta">Abonado {{ d.booked_on|short_date }} · ref {{ d.reference or '—' }}<br>{{ d.description }}</p>
+          <p class="record-total"><span>Asignado a esta liquidación</span><span class="amt">{{ d.allocated_amount|brl }}</span></p>
+          <p class="record-source">{{ m.source_link(d.src_batch_id, d.src_row, d.file_name, d.received_at) }}</p>
+          {% endfor %}
+        {% elif e.candidates %}
+          <h3 class="record-title">{{ e.candidates|length }} depósitos posibles</h3>
+          <ul class="lines">
+            {% for d in e.candidates %}
+            <li>
+              <details open>
+                <summary>
+                  <span>{{ d.external_entry_id }} · {{ d.booked_on|short_date }}</span>
+                  <span class="amt">{{ d.amount|brl }}</span>
+                </summary>
+                <p class="line-detail">{{ d.description }} · sin referencia<br>
+                  {{ m.source_link(d.src_batch_id, d.src_row, d.file_name, d.received_at) }}</p>
+              </details>
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="record-note">Coinciden en monto y fecha. El sistema no elige solo: una persona confirma cuál es.</p>
+        {% else %}
+          <h3 class="record-title">Sin depósito</h3>
+          <p class="record-empty">Ningún movimiento del extracto corresponde todavía a esta liquidación.</p>
+        {% endif %}
+        <p class="record-total"><span>Recibido</span><span class="amt">{{ e.received|brl }}</span></p>
+
+      {% elif e.kind == 'order' %}
+        <p class="record-kicker">Pasarela · cobros</p>
+        <h3 class="record-title">{{ e.payments|length }} evento{{ 's' if e.payments|length != 1 else '' }}</h3>
+        <ul class="lines">
+          {% for p in e.payments %}
+          <li>
+            <details>
+              <summary>
+                <span>{{ 'Cobro' if p.event_type == 'charge' else 'Reembolso' }} · {{ p.payment_method }}</span>
+                <span class="amt">{{ p.amount|brl }}</span>
+              </summary>
+              <p class="line-detail">
+                Evento <code>{{ p.external_event_id }}</code> · {{ p.occurred_at|short_date }}<br>
+                {{ m.source_link(p.src_batch_id, p.src_row, p.file_name, p.received_at) }}
+              </p>
+            </details>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="record-total"><span>Cobrado</span><span class="amt">{{ e.charged|brl }}</span></p>
+
+      {% elif e.kind == 'conflict' %}
+        <p class="record-kicker">Versión recibida después</p>
+        {% for o in e.later %}
+          <h3 class="record-title">{{ o.payload.event_id }}</h3>
+          <p class="record-meta">{{ o.payload.event_type }} · {{ o.payload.payment_method }} · {{ o.payload.order_ref }}</p>
+          <p class="record-total"><span>Importe</span><span class="amt">{{ o.payload.amount|brl }}</span></p>
+          <p class="record-source">{{ m.source_link(o.batch_id, o.row_number, o.file_name, o.received_at) }}</p>
+        {% endfor %}
+        <p class="record-note">No se sobrescribió nada: las dos observaciones siguen guardadas.</p>
+
+      {% else %}
+        {% set d = e.deposit %}
+        <p class="record-kicker">Banco · extracto</p>
+        <h3 class="record-title">{{ d.external_entry_id }}</h3>
+        <p class="record-meta">Abonado {{ d.booked_on|short_date }} · {{ d.reference or 'sin referencia' }}<br>{{ d.description }}</p>
+        <p class="record-total"><span>Importe</span><span class="amt">{{ d.amount|brl }}</span></p>
+        <p class="record-source">{{ m.source_link(d.src_batch_id, d.src_row, d.file_name, d.received_at) }}</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <section class="history" aria-label="Historial del caso">
+    <h3 class="history-title">Historial</h3>
+    <ol>
+      {% for h in e.history %}
+      <li>
+        <span class="history-when">{{ h.recorded_at|short_date }}</span>
+        <span class="history-what">{{ h.note }}</span>
+        {% if h.file_name %}
+        <span class="history-file">tras recibir {{ h.file_name }} ({{ h.received_at|short_date }})</span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+</aside>

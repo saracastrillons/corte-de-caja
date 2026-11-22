@@ -97,16 +97,22 @@ def open_conflict(conn, target: Target, values: dict, existing: tuple, batch_id:
         old_amount = existing[target.compare.index(target.amount)]
         new_amount = values[target.amount]
 
+    # El conflicto existe desde que llegó el archivo que lo provocó.
+    received_at = conn.execute(
+        "SELECT received_at FROM raw.ingestion_batch WHERE batch_id = %s", (batch_id,)
+    ).fetchone()[0]
+
     row = conn.execute(
         """
         INSERT INTO ops.reconciliation_case
-            (level, case_type, entity_type, entity_key, expected_amount, received_amount, next_action)
+            (level, case_type, entity_type, entity_key, expected_amount, received_amount,
+             next_action, opened_at)
         VALUES (%s, 'data_conflict', %s, %s, %s, %s,
-                'Confirmar con la fuente cuál versión es la correcta')
+                'Confirmar con la fuente cuál versión es la correcta', %s)
         ON CONFLICT (case_type, entity_type, entity_key) WHERE status = 'open' DO NOTHING
         RETURNING case_id
         """,
-        (target.level, target.entity_type, entity_key, old_amount, new_amount),
+        (target.level, target.entity_type, entity_key, old_amount, new_amount, received_at),
     ).fetchone()
 
     if row:
@@ -122,9 +128,11 @@ def open_conflict(conn, target: Target, values: dict, existing: tuple, batch_id:
 
     changed = [c for c, old in zip(target.compare, existing) if values[c] != old]
     conn.execute(
-        """INSERT INTO ops.case_event (case_id, event_type, to_status, note, actor, caused_by_batch_id)
-           VALUES (%s, %s, 'open', %s, 'ingest', %s)""",
-        (case_id, event_type, f"Llegó otra versión de {entity_key}; cambia: {', '.join(changed)}", batch_id),
+        """INSERT INTO ops.case_event
+             (case_id, event_type, to_status, note, actor, caused_by_batch_id, recorded_at)
+           VALUES (%s, %s, 'open', %s, 'ingest', %s, %s)""",
+        (case_id, event_type, f"Llegó otra versión de {entity_key}; cambia: {', '.join(changed)}",
+         batch_id, received_at),
     )
 
 

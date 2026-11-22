@@ -16,5 +16,16 @@ services:
       timeout: 3s
       retries: 10
 
+  app:
+    build: .
+    container_name: cortecaja-app
+    environment:
+      DATABASE_URL: postgresql://cortecaja:cortecaja@db:5432/cortecaja
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:

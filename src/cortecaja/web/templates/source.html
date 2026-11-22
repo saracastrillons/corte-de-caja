@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ row.file_name }} · fila {{ row.row_number }} · Corte de Caja{% endblock %}
+
+{% block content %}
+<p class="eyebrow">Archivo de origen</p>
+<h1 class="source-title">{{ row.file_name }} <span>· fila {{ row.row_number }}</span></h1>
+
+<dl class="facts">
+  <div><dt>Fuente</dt><dd>{{ row.source }}</dd></div>
+  <div><dt>Lote</dt><dd>{{ row.batch_id }} · {{ row.batch_status }}</dd></div>
+  <div><dt>Recibido</dt><dd>{{ row.received_at|short_date }}</dd></div>
+  <div><dt>Huella SHA-256</dt><dd class="hash">{{ row.file_sha256 }}</dd></div>
+  <div><dt>Validación</dt>
+    <dd>{% if row.is_valid %}<span class="status tone-done">Válida</span>
+        {% else %}<span class="status tone-act">Rechazada</span> · {{ row.reject_reason }}{% endif %}</dd></div>
+</dl>
+
+<p class="eyebrow">Contenido tal como llegó</p>
+<pre class="payload">{{ pretty }}</pre>
+
+<p><a class="back" href="javascript:history.back()">← Volver</a></p>
+{% endblock %}

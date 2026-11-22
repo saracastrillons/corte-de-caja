@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Cierres · Corte de Caja{% endblock %}
+{% block nav_closes %}is-current{% endblock %}
+
+{% block content %}
+<section class="dayhead">
+  <div>
+    <p class="eyebrow">Historial</p>
+    <h1>Cierres</h1>
+  </div>
+</section>
+
+<div class="table-wrap">
+  <table class="cases">
+    <thead>
+      <tr>
+        <th scope="col">Día</th>
+        <th scope="col">Versión</th>
+        <th scope="col">Estado</th>
+        <th scope="col">Corte de recepción</th>
+        <th scope="col" class="num">Esperado</th>
+        <th scope="col" class="num">Recibido</th>
+        <th scope="col" class="num">Pendiente</th>
+        <th scope="col" class="num">Partidas abiertas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in closes %}
+      <tr data-href="/closes/{{ c.close_id }}">
+        <td><a class="ref" href="/closes/{{ c.close_id }}">{{ c.business_date|short_date }}</a></td>
+        <td class="num">v{{ c.version }}</td>
+        <td>
+          {% set tone = {'published': 'done', 'superseded': 'watch', 'incomplete': 'act'}.get(c.status, 'review') %}
+          <span class="status tone-{{ tone }}">{{ CLOSE_STATUS[c.status]|capitalize }}</span>
+          {% if c.missing_sources %}<span class="level">Falta: {{ c.missing_sources|join(', ') }}</span>{% endif %}
+        </td>
+        <td class="num">{{ c.received_cutoff|short_date }}</td>
+        <td class="num">{{ c.total_expected|brl }}</td>
+        <td class="num">{{ c.total_received|brl }}</td>
+        <td class="num diff {{ 'is-zero' if c.total_pending == 0 else '' }}">{{ c.total_pending|brl }}</td>
+        <td class="num">{{ c.open_items }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="empty">Todavía no hay cierres.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+  document.querySelectorAll("tr[data-href]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (!event.target.closest("a")) window.location = row.dataset.href;
+    });
+  });
+</script>
+{% endblock %}

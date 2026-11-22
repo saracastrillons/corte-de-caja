@@ -1,0 +1,13 @@
+{# Piezas reutilizables de las plantillas. #}
+
+{# El enlace que lleva de cualquier dato a la fila exacta del archivo de origen. #}
+{% macro source_link(batch_id, row_number, file_name, received_at) -%}
+  <a class="src" href="/source/{{ batch_id }}/{{ row_number }}">
+    {{ file_name }} · fila {{ row_number }} · recibido {{ received_at|short_date }}
+  </a>
+{%- endmacro %}
+
+{% macro result_status(status) -%}
+  {% set label, tone = RESULT_LABELS[status] %}
+  <span class="status tone-{{ tone }}">{{ label }}</span>
+{%- endmacro %}
