@@ -4,9 +4,11 @@ Uso:  uvicorn cortecaja.web.main:app --reload
 """
 
 import json
+import math
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -16,21 +18,40 @@ from psycopg.rows import dict_row
 
 from cortecaja.db import connect
 from cortecaja.web import queries
-from cortecaja.web.format import (CASE_LABELS, CLOSE_STATUS, LEVEL_LABELS, LINE_LABELS,
-                                  RESULT_LABELS, brl, gap_sentence, short_date)
+from cortecaja.web.format import (CASE_HELP, CASE_LABELS, CLOSE_STATUS, LEVEL_LABELS, LINE_LABELS,
+                                  RESULT_LABELS, brl, days_label, gap_sentence, humanize, number,
+                                  pct, short_date)
 
 HERE = Path(__file__).parent
 
 app = FastAPI(title="Corte de Caja")
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
+
+def desk_url(view: str = "open", type: str | None = None, q: str | None = None,
+             page: int = 1, case: int | None = None) -> str:
+    """Arma el enlace de la mesa conservando filtros, búsqueda y página."""
+    params = {"view": view}
+    if type:
+        params["type"] = type
+    if q:
+        params["q"] = q
+    if page > 1:
+        params["page"] = page
+    if case:
+        params["case"] = case
+    return "/?" + urlencode(params) + "#bandeja"
+
+
 templates = Jinja2Templates(directory=HERE / "templates")
-templates.env.filters["brl"] = brl
-templates.env.filters["short_date"] = short_date
+templates.env.filters.update(brl=brl, short_date=short_date, number=number, days_label=days_label,
+                             humanize=humanize)
 templates.env.globals.update(
-    CASE_LABELS=CASE_LABELS, LEVEL_LABELS=LEVEL_LABELS, RESULT_LABELS=RESULT_LABELS,
-    LINE_LABELS=LINE_LABELS, CLOSE_STATUS=CLOSE_STATUS,
+    CASE_LABELS=CASE_LABELS, CASE_HELP=CASE_HELP, LEVEL_LABELS=LEVEL_LABELS,
+    RESULT_LABELS=RESULT_LABELS, LINE_LABELS=LINE_LABELS, CLOSE_STATUS=CLOSE_STATUS,
+    desk_url=desk_url, pct=pct,
 )
+
 
 
 def get_conn():
@@ -69,18 +90,30 @@ def build_evidence(conn, case: dict, day: date) -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
-def desk(request: Request, view: str = "open", case: int | None = None, conn=Depends(get_conn)):
+def desk(request: Request, view: str = "open", type: str | None = None, q: str | None = None,
+         page: int = 1, case: int | None = None, conn=Depends(get_conn)):
     day = queries.operating_day(conn)
     status = "resolved" if view == "resolved" else "open"
+    q = (q or "").strip() or None
+    type = type if type in CASE_LABELS else None
 
+    rows, total = queries.cases(conn, day, status, type, q, max(page, 1))
     selected = queries.case_detail(conn, case, day) if case else None
     return templates.TemplateResponse(request, "desk.html", {
         "day": day,
         "view": status,
+        "filter_type": type,
+        "q": q,
+        "page": max(page, 1),
+        "pages": max(math.ceil(total / queries.PAGE_SIZE), 1),
+        "page_size": queries.PAGE_SIZE,
+        "total": total,
         "totals": queries.day_totals(conn, day),
+        "flow": queries.flow_summary(conn, day),
         "last_close": queries.last_close(conn, day),
         "counts": queries.case_counts(conn),
-        "cases": queries.cases(conn, day, status),
+        "type_counts": queries.case_type_counts(conn, status),
+        "cases": rows,
         "selected": selected,
         "evidence": build_evidence(conn, selected, day) if selected else None,
     })

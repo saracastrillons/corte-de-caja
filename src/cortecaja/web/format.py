@@ -18,6 +18,20 @@ CASE_LABELS = {
     "in_transit":           ("En tránsito", "watch"),
 }
 
+# tipo de caso -> qué significa, en palabras de quien opera la mesa (el glosario de la bandeja)
+CASE_HELP = {
+    "overdue_deposit":      "La pasarela liquidó, pero el dinero no llegó al banco en la fecha prometida.",
+    "amount_mismatch":      "Llegó dinero de la partida correcta, pero no por el monto esperado.",
+    "duplicate_charge":     "El mismo pedido se cobró dos veces, con el mismo medio, en pocos minutos.",
+    "data_conflict":        "Un mismo evento llegó dos veces con datos distintos. No se sobrescribió nada.",
+    "ambiguous_match":      "Un depósito sin referencia coincide en monto y fecha: una persona confirma cuál es.",
+    "unmatched_bank_entry": "Entró dinero al banco que no corresponde a ninguna liquidación conocida.",
+    "partial_payment":      "Se cobró menos de lo que valía el pedido.",
+    "charge_without_order": "La pasarela cobró una referencia que la tienda no tiene registrada.",
+    "in_transit":           "El pago todavía está dentro del plazo: solo se observa.",
+}
+
+
 LEVEL_LABELS = {
     "order_gateway": "Pedido → pasarela",
     "gateway_bank": "Pasarela → banco",
@@ -59,6 +73,31 @@ def short_date(value) -> str:
     if isinstance(value, datetime):
         text += f" · {value:%H:%M}"
     return text
+
+
+def number(value) -> str:
+    """12345 -> '12.345' (separador de miles brasileño)."""
+    return f"{value:,}".replace(",", ".")
+
+
+def pct(part, whole) -> float:
+    """Porcentaje para dibujar barras; 0 si no hay base."""
+    return round(100 * float(part) / float(whole), 1) if whole else 0.0
+
+
+def humanize(note: str | None) -> str:
+    """'overdue_deposit → amount_mismatch' -> 'Depósito vencido → Diferencia de monto'."""
+    text = note or ""
+    for code, (label, _) in CASE_LABELS.items():
+        text = text.replace(code, label)
+    return text
+
+
+def days_label(days) -> str:
+    if days is None:
+        return "—"
+    return "hoy" if days == 0 else f"{days} día{'s' if days != 1 else ''}"
+
 
 
 def gap_sentence(case: dict, day: date) -> str:

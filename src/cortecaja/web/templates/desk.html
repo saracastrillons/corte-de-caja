@@ -3,53 +3,138 @@
 {% block nav_desk %}is-current{% endblock %}
 
 {% block content %}
-<section class="dayhead">
+<section class="hero">
   <div>
     <p class="eyebrow">Día operativo</p>
     <h1>{{ day|short_date }}</h1>
+    <p class="lede">Qué dinero esperábamos, qué dinero llegó y qué hay detrás de cada diferencia.</p>
   </div>
   {% if last_close %}
   <a class="close-chip close-{{ last_close.status }}" href="/closes/{{ last_close.close_id }}">
     <span class="close-chip-label">Cierre v{{ last_close.version }} · {{ CLOSE_STATUS[last_close.status] }}</span>
     <span class="close-chip-meta">corte {{ last_close.received_cutoff|short_date }}</span>
+    <span class="close-chip-link">Ver cierre →</span>
   </a>
   {% endif %}
 </section>
 
-<dl class="ledger" aria-label="Totales del día">
-  <div class="ledger-cell">
-    <dt>Esperado</dt>
-    <dd>{{ totals.expected|brl }}</dd>
-  </div>
-  <div class="ledger-cell">
-    <dt>Recibido</dt>
-    <dd>{{ totals.received|brl }}</dd>
-  </div>
-  <div class="ledger-cell is-pending">
-    <dt>Pendiente</dt>
-    <dd>{{ totals.pending|brl }}</dd>
-  </div>
-  <div class="ledger-cell is-quiet">
-    <dt>En tránsito</dt>
-    <dd>{{ totals.in_transit|brl }}</dd>
-  </div>
-  <div class="ledger-cell is-quiet">
-    <dt>Sin identificar</dt>
-    <dd>{{ totals.unidentified|brl }}</dd>
-  </div>
-</dl>
+{# ── El recorrido del dinero: tres preguntas, una por etapa ─────────────── #}
+{% set o, s, d = flow.orders, flow.settlements, flow.deposits %}
+<ol class="flow" aria-label="El recorrido del dinero">
+  <li class="stage">
+    <p class="stage-step"><span class="stage-num">1</span>Pedido → pasarela</p>
+    <p class="stage-question">¿Se cobró lo que valía cada pedido?</p>
+    <p class="stage-figure">{{ o.ok|number }}<span> de {{ o.total|number }} pedidos cuadran</span></p>
+    <div class="meter" role="img" aria-label="{{ o.ok }} cuadran, {{ o.issues }} con diferencia">
+      <span class="meter-ok" style="width: {{ pct(o.ok, o.total) }}%"></span>
+      <span class="meter-issue" style="width: {{ pct(o.issues, o.total) }}%"></span>
+    </div>
+    <p class="stage-note">
+      {% if o.issues %}<b>{{ o.issues|number }}</b> con diferencia{% else %}Sin diferencias{% endif %}
+      {% if o.orphans %} · <b>{{ o.orphans|number }}</b> cobro{{ 's' if o.orphans != 1 }} sin pedido{% endif %}
+    </p>
+  </li>
+  <li class="stage">
+    <p class="stage-step"><span class="stage-num">2</span>Pasarela → banco</p>
+    <p class="stage-question">¿Llegó al banco lo que liquidó la pasarela?</p>
+    <p class="stage-figure">{{ s.ok|number }}<span> de {{ s.total|number }} liquidaciones conciliadas</span></p>
+    <div class="meter" role="img" aria-label="{{ s.ok }} conciliadas, {{ s.waiting }} en plazo, {{ s.issues }} con problema">
+      <span class="meter-ok" style="width: {{ pct(s.ok, s.total) }}%"></span>
+      <span class="meter-wait" style="width: {{ pct(s.waiting, s.total) }}%"></span>
+      <span class="meter-issue" style="width: {{ pct(s.issues, s.total) }}%"></span>
+    </div>
+    <p class="stage-note">
+      {% if s.issues %}<b>{{ s.issues|number }}</b> por revisar{% else %}Nada por revisar{% endif %}
+      {% if s.waiting %} · <b>{{ s.waiting|number }}</b> todavía en plazo{% endif %}
+    </p>
+  </li>
+  <li class="stage">
+    <p class="stage-step"><span class="stage-num">3</span>Banco</p>
+    <p class="stage-question">¿Sabemos de dónde viene cada depósito?</p>
+    <p class="stage-figure">{{ d.ok|number }}<span> de {{ d.total|number }} depósitos identificados</span></p>
+    <div class="meter" role="img" aria-label="{{ d.ok }} identificados, {{ d.unidentified }} sin identificar">
+      <span class="meter-ok" style="width: {{ pct(d.ok, d.total) }}%"></span>
+      <span class="meter-issue" style="width: {{ pct(d.unidentified, d.total) }}%"></span>
+    </div>
+    <p class="stage-note">
+      {% if d.unidentified %}<b>{{ d.unidentified|number }}</b> sin identificar{% else %}Todos identificados{% endif %}
+    </p>
+  </li>
+</ol>
 
+{# ── Las cifras del día ─────────────────────────────────────────────────── #}
+<section class="money" aria-label="Totales del día">
+  <dl class="ledger">
+    <div class="ledger-cell">
+      <dt>Esperado <span class="dt-help">liquidaciones con fecha de pago hasta hoy</span></dt>
+      <dd>{{ totals.expected|brl }}</dd>
+    </div>
+    <div class="ledger-cell">
+      <dt>Recibido <span class="dt-help">depósitos vinculados a esas liquidaciones</span></dt>
+      <dd>{{ totals.received|brl }}</dd>
+    </div>
+    <div class="ledger-cell is-pending">
+      <dt>Pendiente <span class="dt-help">lo que falta explicar</span></dt>
+      <dd>{{ totals.pending|brl }}</dd>
+    </div>
+    <div class="ledger-cell is-quiet">
+      <dt>En tránsito <span class="dt-help">pagos que vencen después de hoy</span></dt>
+      <dd>{{ totals.in_transit|brl }}</dd>
+    </div>
+    <div class="ledger-cell is-quiet">
+      <dt>Sin identificar <span class="dt-help">depósitos sin liquidación</span></dt>
+      <dd>{{ totals.unidentified|brl }}</dd>
+    </div>
+  </dl>
+  {% set received_pct = pct(totals.received, totals.expected) %}
+  <div class="progress">
+    <div class="progress-track" role="img" aria-label="Recibido {{ received_pct }} % de lo esperado">
+      <span class="progress-fill" style="width: {{ [received_pct, 100]|min }}%"></span>
+    </div>
+    <p class="progress-label"><b>{{ received_pct|string|replace('.', ',') }} %</b> de lo esperado ya está en el banco</p>
+  </div>
+</section>
+
+{# ── Bandeja + ficha de evidencia ───────────────────────────────────────── #}
 <div class="desk {{ 'has-panel' if selected else '' }}" id="bandeja">
   <section class="inbox" aria-labelledby="inbox-title">
     <div class="inbox-head">
-      <h2 id="inbox-title">Bandeja de diferencias</h2>
+      <div>
+        <h2 id="inbox-title">Bandeja de diferencias</h2>
+        <p class="hint">Ordenada por el dinero involucrado. Haz clic en un caso para ver la evidencia.</p>
+      </div>
       <div class="tabs" role="tablist">
-        <a role="tab" href="/?view=open" aria-selected="{{ 'true' if view == 'open' else 'false' }}">
-          Abiertos <span class="count">{{ counts.get('open', 0) }}</span></a>
-        <a role="tab" href="/?view=resolved" aria-selected="{{ 'true' if view == 'resolved' else 'false' }}">
-          Resueltos <span class="count">{{ counts.get('resolved', 0) }}</span></a>
+        <a role="tab" href="{{ desk_url('open') }}" aria-selected="{{ 'true' if view == 'open' else 'false' }}">
+          Abiertos <span class="count">{{ counts.get('open', 0)|number }}</span></a>
+        <a role="tab" href="{{ desk_url('resolved') }}" aria-selected="{{ 'true' if view == 'resolved' else 'false' }}">
+          Resueltos <span class="count">{{ counts.get('resolved', 0)|number }}</span></a>
       </div>
     </div>
+
+    <div class="toolbar">
+      <nav class="chips" aria-label="Filtrar por tipo de caso">
+        <a class="chip {{ 'is-on' if not filter_type else '' }}" href="{{ desk_url(view, None, q) }}">
+          Todos <span class="chip-count">{{ counts.get(view, 0)|number }}</span></a>
+        {% for t in type_counts %}
+        {% set label, tone = CASE_LABELS.get(t.case_type, (t.case_type, 'review')) %}
+        <a class="chip {{ 'is-on' if filter_type == t.case_type else '' }}"
+           href="{{ desk_url(view, t.case_type, q) }}" title="{{ CASE_HELP.get(t.case_type, '') }}">
+          <span class="status tone-{{ 'done' if view == 'resolved' else tone }}">{{ label }}</span>
+          <span class="chip-count">{{ t.n|number }}</span></a>
+        {% endfor %}
+      </nav>
+      <form class="search" method="get" action="/#bandeja" role="search">
+        <input type="hidden" name="view" value="{{ view }}">
+        {% if filter_type %}<input type="hidden" name="type" value="{{ filter_type }}">{% endif %}
+        <input type="search" name="q" value="{{ q or '' }}" placeholder="Buscar: STL-1, ORD-1006…"
+               aria-label="Buscar por referencia">
+        <button type="submit">Buscar</button>
+      </form>
+    </div>
+
+    {% if q %}
+    <p class="search-note">Resultados para <b>“{{ q }}”</b> · <a href="{{ desk_url(view, filter_type) }}">quitar búsqueda</a></p>
+    {% endif %}
 
     <div class="table-wrap">
       <table class="cases">
@@ -60,14 +145,14 @@
             <th scope="col" class="num col-amt">Esperado</th>
             <th scope="col" class="num col-amt">Recibido</th>
             <th scope="col" class="num">Diferencia</th>
-            <th scope="col" class="num col-days">Días</th>
+            <th scope="col" class="num col-days">Abierto</th>
             <th scope="col" class="col-next">Siguiente paso</th>
           </tr>
         </thead>
         <tbody>
           {% for c in cases %}
           {% set label, tone = CASE_LABELS.get(c.case_type, (c.case_type, 'review')) %}
-          {% set href = '/?view=' ~ view ~ '&case=' ~ c.case_id ~ '#bandeja' %}
+          {% set href = desk_url(view, filter_type, q, page, c.case_id) %}
           <tr data-href="{{ href }}" class="{{ 'is-selected' if selected and selected.case_id == c.case_id else '' }}">
             <td>
               {% if view == 'resolved' %}
@@ -84,15 +169,50 @@
             <td class="num col-amt">{{ c.expected_amount|brl }}</td>
             <td class="num col-amt">{{ c.received_amount|brl }}</td>
             <td class="num diff {{ 'is-zero' if c.difference == 0 else '' }}">{{ c.difference|brl(signed=True) }}</td>
-            <td class="num col-days">{{ c.days_open }}</td>
+            <td class="num col-days">{{ c.days_open|days_label }}</td>
             <td class="next col-next">{{ c.next_action }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="7" class="empty">No hay casos en esta vista.</td></tr>
+          <tr><td colspan="7" class="empty">
+            {% if q or filter_type %}Ningún caso coincide con este filtro.
+            {% elif view == 'open' %}No hay diferencias abiertas: todo cuadra.
+            {% else %}Todavía no se ha resuelto ningún caso.{% endif %}
+          </td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    {% if total %}
+    <div class="pager">
+      <p>Mostrando <b>{{ ((page - 1) * page_size + 1)|number }}–{{ [page * page_size, total]|min|number }}</b>
+         de <b>{{ total|number }}</b></p>
+      {% if pages > 1 %}
+      <div class="pager-links">
+        {% if page > 1 %}<a href="{{ desk_url(view, filter_type, q, page - 1) }}">← Anterior</a>{% endif %}
+        <span>Página {{ page }} de {{ pages }}</span>
+        {% if page < pages %}<a href="{{ desk_url(view, filter_type, q, page + 1) }}">Siguiente →</a>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <details class="glossary">
+      <summary>¿Qué significa cada estado?</summary>
+      <dl>
+        {% for key, (label, tone) in CASE_LABELS.items() %}
+        <div>
+          <dt><span class="status tone-{{ tone }}">{{ label }}</span></dt>
+          <dd>{{ CASE_HELP[key] }}</dd>
+        </div>
+        {% endfor %}
+      </dl>
+      <p class="glossary-note">La forma de la marca también dice qué hacer:
+        <span class="status tone-act">actuar</span>
+        <span class="status tone-review">revisar</span>
+        <span class="status tone-watch">observar</span>
+        <span class="status tone-done">resuelto</span></p>
+    </details>
   </section>
 
   {% if selected %}

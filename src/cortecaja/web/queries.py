@@ -66,15 +66,72 @@ CASE_COLUMNS = """
 """
 
 
-def cases(conn: psycopg.Connection, day: date, status: str) -> list[dict]:
-    """La bandeja: primero lo que más dinero involucra."""
+PAGE_SIZE = 25
+
+
+def case_type_counts(conn: psycopg.Connection, status: str) -> list[dict]:
+    """Cuántos casos hay de cada tipo y cuánto dinero involucran: los filtros de la bandeja."""
     return conn.execute(
+        """SELECT case_type, COUNT(*) AS n, SUM(ABS(difference)) AS amount
+           FROM ops.reconciliation_case
+           WHERE status = %s
+           GROUP BY case_type
+           ORDER BY SUM(ABS(difference)) DESC, case_type""",
+        (status,),
+    ).fetchall()
+
+
+def cases(conn: psycopg.Connection, day: date, status: str, case_type: str | None = None,
+          search: str | None = None, page: int = 1) -> tuple[list[dict], int]:
+    """La bandeja: primero lo que más dinero involucra. Devuelve (casos de la página, total)."""
+    params = {"d": day, "s": status, "t": case_type, "q": f"%{search}%" if search else None,
+              "limit": PAGE_SIZE, "offset": (page - 1) * PAGE_SIZE}
+    where = """status = %(s)s
+               AND (%(t)s::text IS NULL OR case_type = %(t)s)
+               AND (%(q)s::text IS NULL OR entity_key ILIKE %(q)s)"""
+    total = conn.execute(
+        f"SELECT COUNT(*) AS n FROM ops.reconciliation_case WHERE {where}", params
+    ).fetchone()["n"]
+    rows = conn.execute(
         f"""SELECT {CASE_COLUMNS}
             FROM ops.reconciliation_case
-            WHERE status = %(s)s
-            ORDER BY ABS(difference) DESC, case_id""",
-        {"d": day, "s": status},
+            WHERE {where}
+            ORDER BY ABS(difference) DESC, case_id
+            LIMIT %(limit)s OFFSET %(offset)s""",
+        params,
     ).fetchall()
+    return rows, total
+
+
+def flow_summary(conn: psycopg.Connection, day: date) -> dict:
+    """El recorrido del dinero en tres etapas, con cuántas partidas cuadran en cada una."""
+    orders = conn.execute(
+        """SELECT COUNT(*) FILTER (WHERE status <> 'charge_without_order') AS total,
+                  COUNT(*) FILTER (WHERE status = 'matched')               AS ok,
+                  COUNT(*) FILTER (WHERE status NOT IN ('matched', 'charge_without_order')) AS issues,
+                  COUNT(*) FILTER (WHERE status = 'charge_without_order')  AS orphans,
+                  COALESCE(SUM(charged_amount), 0)                          AS amount
+           FROM recon.order_gateway()"""
+    ).fetchone()
+    bank = conn.execute(
+        """SELECT COUNT(*) FILTER (WHERE item_type = 'settlement')                              AS total,
+                  COUNT(*) FILTER (WHERE item_type = 'settlement' AND status = 'reconciled')     AS ok,
+                  COUNT(*) FILTER (WHERE item_type = 'settlement' AND status = 'in_transit')     AS waiting,
+                  COUNT(*) FILTER (WHERE item_type = 'settlement'
+                                   AND status NOT IN ('reconciled', 'in_transit'))               AS issues,
+                  COUNT(*) FILTER (WHERE item_type = 'bank_entry')                               AS unidentified,
+                  COALESCE(SUM(expected_amount) FILTER (WHERE item_type = 'settlement'), 0)      AS amount
+           FROM recon.gateway_bank(%s)""",
+        (day,),
+    ).fetchone()
+    deposits = conn.execute(
+        """SELECT COUNT(*) AS total, COALESCE(SUM(amount), 0) AS amount
+           FROM core.bank_entries WHERE amount > 0 AND booked_on <= %s""",
+        (day,),
+    ).fetchone()
+    deposits["unidentified"] = bank["unidentified"]
+    deposits["ok"] = deposits["total"] - bank["unidentified"]
+    return {"orders": orders, "settlements": bank, "deposits": deposits}
 
 
 def case_detail(conn: psycopg.Connection, case_id: int, day: date) -> dict | None:
